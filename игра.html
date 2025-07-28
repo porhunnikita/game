@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Кристальный Квест</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Basic styles for the application body */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, #1a202c);
+            color: var(--tg-theme-text-color, #ffffff);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Main container for the game */
+        #game-container {
+            width: 100%;
+            max-width: 480px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        /* Styles for different game screens */
+        .screen {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background-color: var(--tg-theme-secondary-bg-color, #2d3748);
+            border-radius: 12px;
+            padding: 20px;
+            box-sizing: border-box;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        /* Header for the game screen */
+        #game-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 10px 0;
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+
+        .info-box {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        /* The game canvas */
+        canvas {
+            border-radius: 8px;
+            background-color: #000;
+            touch-action: none; /* Disables browser gestures like pull-to-refresh */
+        }
+
+        /* Buttons styling */
+        .btn {
+            background-color: var(--tg-theme-button-color, #4a90e2);
+            color: var(--tg-theme-button-text-color, #ffffff);
+            border: none;
+            border-radius: 8px;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .btn:hover {
+            background-color: #357abd;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        /* Titles and text styling */
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        p {
+            font-size: 1.2em;
+            margin-bottom: 20px;
+        }
+        
+        #end-screen-stars {
+            font-size: 3em;
+            margin: 10px 0;
+        }
+
+        /* Mute button styling */
+        #mute-button {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.4);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="welcome-screen" class="screen">
+            <h1>💎 Кристальный Квест</h1>
+            <p id="welcome-text">Добро пожаловать!</p>
+            <p>Текущий уровень: <span id="current-level-display">1</span></p>
+            <button id="play-button" class="btn">Играть</button>
+        </div>
+
+        <div id="game-screen" class="screen" style="display: none;">
+            <div id="game-header">
+                <div class="info-box">Цель: <span id="level-goal"></span></div>
+                <div class="info-box">Ходы: <span id="moves-left"></span></div>
+            </div>
+            <canvas id="game-canvas"></canvas>
+        </div>
+
+        <div id="end-screen" class="screen" style="display: none;">
+            <h2 id="end-screen-title"></h2>
+            <p id="end-screen-message"></p>
+            <div id="end-screen-stars"></div>
+            <p>Очки: <span id="end-screen-score"></span></p>
+            <button id="end-screen-button" class="btn"></button>
+        </div>
+    </div>
+    
+    <button id="mute-button">🔊</button>
+
+    <script>
+        // Use DOMContentLoaded to ensure the DOM is fully loaded before running the script
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- SECTION: TELEGRAM SDK INITIALIZATION ---
+            const tg = window.Telegram.WebApp;
+            tg.ready(); // Inform Telegram that the app is ready
+            tg.expand(); // Expand the Mini App to full height
+
+            // --- SECTION: GLOBAL VARIABLES & CONSTANTS ---
+            const canvas = document.getElementById('game-canvas');
+            const ctx = canvas.getContext('2d');
+
+            // DOM Elements
+            const welcomeScreen = document.getElementById('welcome-screen');
+            const gameScreen = document.getElementById('game-screen');
+            const endScreen = document.getElementById('end-screen');
+            const playButton = document.getElementById('play-button');
+            const endScreenButton = document.getElementById('end-screen-button');
+            const muteButton = document.getElementById('mute-button');
+            const welcomeText = document.getElementById('welcome-text');
+            const levelDisplay = document.getElementById('current-level-display');
+            const goalDisplay = document.getElementById('level-goal');
+            const movesDisplay = document.getElementById('moves-left');
+            const endScreenTitle = document.getElementById('end-screen-title');
+            const endScreenMessage = document.getElementById('end-screen-message');
+            const endScreenScore = document.getElementById('end-screen-score');
+            const endScreenStars = document.getElementById('end-screen-stars');
+
+
+            // Game Constants
+            const GRID_SIZE = 8;
+            const CRYSTAL_TYPES = 6; // Number of different crystal colors/types
+            
+            // Game State
+            let board = [];
+            let score = 0;
+            let movesLeft = 0;
+            let currentLevel = 1;
+            let isMuted = false;
+            let levelGoal = {};
+            let isSwapping = false;
+            let isAnimating = false;
+            let selectedCrystal = null;
+
+            // Canvas & Sizing
+            let cellSize;
+            let boardSize;
+
+            // Crystal colors
+            const colors = ['#FF4136', '#0074D9', '#2ECC40', '#FFDC00', '#B10DC9', '#FF851B'];
+
+            // Level Definitions
+            // This is where you define the goals for each level.
+            // Goal types: 'score', 'ice', 'drop'
+            const levels = [
+                {}, // Level 0 is unused, start from 1
+                { type: 'score', target: 5000, moves: 20 },
+                { type: 'score', target: 10000, moves: 25 },
+                // You can add many more levels here with increasing difficulty
+                // { type: 'ice', target: 10, moves: 30 }, // Example for an ice level
+                // { type: 'drop', target: 2, moves: 25 }  // Example for a drop item level
+            ];
+
+            // --- SECTION: UI & SCREEN MANAGEMENT ---
+
+            /**
+             * Hides all screens and shows the one with the specified ID.
+             * @param {string} screenId - The ID of the screen to show.
+             */
+            function showScreen(screenId) {
+                welcomeScreen.style.display = 'none';
+                gameScreen.style.display = 'none';
+                endScreen.style.display = 'none';
+                document.getElementById(screenId).style.display = 'flex';
+            }
+
+            /**
+             * Initializes the game by setting up the canvas and starting the game loop.
+             */
+            function initGame() {
+                loadProgress(); // Load saved level
+                levelDisplay.textContent = currentLevel;
+                // Personalization using Telegram user data
+                if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                    welcomeText.textContent = `Привет, ${tg.initDataUnsafe.user.first_name}!`;
+                }
+                setupCanvas();
+            }
+
+            /**
+             * Sets the canvas size to be responsive to the screen.
+             */
+            function setupCanvas() {
+                const container = document.getElementById('game-container');
+                const availableWidth = container.clientWidth - 20; // Padding
+                const availableHeight = container.clientHeight * 0.7; // Use 70% of height for the game area
+                boardSize = Math.min(availableWidth, availableHeight);
+                canvas.width = boardSize;
+                canvas.height = boardSize;
+                cellSize = boardSize / GRID_SIZE;
+            }
+
+            window.addEventListener('resize', setupCanvas);
+            
+            // --- SECTION: GAME LOGIC ---
+
+            /**
+             * Starts a new level.
+             */
+            function startLevel() {
+                if (currentLevel > levels.length - 1) {
+                    // Handle game completion
+                    showEndScreen(true, "Вы прошли все уровни!", "Поздравляем!");
+                    return;
+                }
+                
+                score = 0;
+                levelGoal = levels[currentLevel];
+                movesLeft = levelGoal.moves;
+
+                updateUI();
+                createBoard();
+                showScreen('game-screen');
+                gameLoop();
+            }
+            
+            /**
+             * Creates the initial game board, ensuring no matches exist at the start.
+             */
+            function createBoard() {
+                board = [];
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    board[y] = [];
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        board[y][x] = {
+                            type: Math.floor(Math.random() * CRYSTAL_TYPES),
+                            x: x * cellSize,
+                            y: y * cellSize,
+                            scale: 1,
+                            alpha: 1
+                        };
+                    }
+                }
+                // Ensure no starting matches
+                while (findMatches().length > 0) {
+                     createBoard(); // Simple recursive recreation if matches found
+                }
+            }
+
+            /**
+             * Main game loop using requestAnimationFrame for smooth animations.
+             */
+            function gameLoop() {
+                if(gameScreen.style.display !== 'flex') return; // Stop loop if not on game screen
+                
+                ctx.clearRect(0, 0, boardSize, boardSize);
+                drawBoard();
+                
+                if(!isAnimating) {
+                    processGameLogic();
+                }
+
+                requestAnimationFrame(gameLoop);
+            }
+
+            /**
+             * Draws the entire game board and crystals.
+             */
+            function drawBoard() {
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        if (board[y][x]) {
+                            drawCrystal(x, y, board[y][x]);
+                        }
+                    }
+                }
+                // Draw selection highlight
+                if (selectedCrystal) {
+                    ctx.strokeStyle = '#FFFFFF';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(selectedCrystal.x * cellSize, selectedCrystal.y * cellSize, cellSize, cellSize);
+                }
+            }
+            
+            /**
+             * Draws a single crystal.
+             * @param {number} x - The grid x-coordinate.
+             * @param {number} y - The grid y-coordinate.
+             * @param {object} crystal - The crystal object to draw.
+             */
+            function drawCrystal(x, y, crystal) {
+                const type = crystal.type;
+                const size = cellSize * crystal.scale * 0.8;
+                const cX = x * cellSize + cellSize / 2;
+                const cY = y * cellSize + cellSize / 2;
+                
+                ctx.save();
+                ctx.globalAlpha = crystal.alpha;
+                ctx.fillStyle = colors[type];
+                ctx.beginPath();
+                
+                // Simple shape rendering based on type
+                switch(type) {
+                    case 0: // Square
+                        ctx.rect(cX - size / 2, cY - size / 2, size, size);
+                        break;
+                    case 1: // Circle
+                        ctx.arc(cX, cY, size / 2, 0, Math.PI * 2);
+                        break;
+                    case 2: // Triangle
+                        ctx.moveTo(cX, cY - size / 2);
+                        ctx.lineTo(cX + size / 2, cY + size / 2);
+                        ctx.lineTo(cX - size / 2, cY + size / 2);
+                        break;
+                    case 3: // Diamond
+                        ctx.moveTo(cX, cY - size / 2);
+                        ctx.lineTo(cX + size / 2, cY);
+                        ctx.lineTo(cX, cY + size / 2);
+                        ctx.lineTo(cX - size / 2, cY);
+                        break;
+                    case 4: // Hexagon
+                        for (let i = 0; i < 6; i++) {
+                            ctx.lineTo(cX + size/2 * Math.cos(i * Math.PI / 3), cY + size/2 * Math.sin(i * Math.PI / 3));
+                        }
+                        break;
+                    case 5: // Star
+                         ctx.moveTo(cX, cY - size/2);
+                        for (let i = 0; i < 5; i++) {
+                            ctx.lineTo(cX + size/2 * Math.cos((18 + i*72) * Math.PI/180), cY - size/2 * Math.sin((18 + i*72) * Math.PI/180));
+                            ctx.lineTo(cX + size/4 * Math.cos((54 + i*72) * Math.PI/180), cY - size/4 * Math.sin((54 + i*72) * Math.PI/180));
+                        }
+                        break;
+                }
+
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+
+            /**
+             * Handles the main sequence of game logic: finding matches, crushing, dropping, and refilling.
+             */
+            async function processGameLogic() {
+                isAnimating = true;
+                let matches = findMatches();
+                if(matches.length > 0) {
+                    await crushMatches(matches);
+                    await dropCrystals();
+                    await refillBoard();
+                    // Cascade effect - check for new matches
+                    processGameLogic();
+                } else {
+                    isAnimating = false;
+                    checkEndConditions();
+                }
+            }
+            
+            /**
+             * Finds all horizontal and vertical matches on the board.
+             * @returns {array} An array of matched crystal objects.
+             */
+            function findMatches() {
+                let matches = [];
+                // Find horizontal matches
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE - 2; x++) {
+                        if (board[y][x] && board[y][x+1] && board[y][x+2]) {
+                            if (board[y][x].type === board[y][x+1].type && board[y][x+1].type === board[y][x+2].type) {
+                                matches.push(board[y][x], board[y][x+1], board[y][x+2]);
+                            }
+                        }
+                    }
+                }
+                // Find vertical matches
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    for (let y = 0; y < GRID_SIZE - 2; y++) {
+                         if (board[y][x] && board[y+1][x] && board[y+2][x]) {
+                             if (board[y][x].type === board[y+1][x].type && board[y+1][x].type === board[y+2][x].type) {
+                                matches.push(board[y][x], board[y+1][x], board[y+2][x]);
+                            }
+                         }
+                    }
+                }
+                // Return unique matches
+                return [...new Set(matches)]; 
+            }
+            
+            /**
+             * Animates the crushing of matched crystals and updates the score.
+             * @param {array} matches - An array of matched crystals.
+             */
+            function crushMatches(matches) {
+                playSound('match');
+                // Haptic feedback for successful match
+                if(tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+                
+                matches.forEach(crystal => {
+                    let boardCrystal = getCrystalByRef(crystal);
+                    if (boardCrystal) {
+                         // Simple animation: shrink and fade
+                        board[boardCrystal.y][boardCrystal.x] = null;
+                        score += 100;
+                    }
+                });
+                
+                updateUI();
+                return new Promise(resolve => setTimeout(resolve, 300)); // Animation duration
+            }
+
+            function getCrystalByRef(ref) {
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        if (board[y][x] === ref) {
+                            return {x, y};
+                        }
+                    }
+                }
+                return null;
+            }
+
+            /**
+             * Drops crystals down to fill empty spaces.
+             */
+            function dropCrystals() {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    let emptySpaces = 0;
+                    for (let y = GRID_SIZE - 1; y >= 0; y--) {
+                        if (board[y][x] === null) {
+                            emptySpaces++;
+                        } else if (emptySpaces > 0) {
+                            board[y + emptySpaces][x] = board[y][x];
+                            board[y][x] = null;
+                        }
+                    }
+                }
+                return new Promise(resolve => setTimeout(resolve, 200));
+            }
+            
+            /**
+             * Refills the board with new crystals from the top.
+             */
+            function refillBoard() {
+                 for (let y = 0; y < GRID_SIZE; y++) {
+                    for (let x = 0; x < GRID_SIZE; x++) {
+                        if (board[y][x] === null) {
+                            board[y][x] = {
+                                type: Math.floor(Math.random() * CRYSTAL_TYPES),
+                                x: x * cellSize,
+                                y: y * cellSize,
+                                scale: 1,
+                                alpha: 1
+                            };
+                        }
+                    }
+                }
+                return new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+
+            /**
+             * Checks for win or loss conditions.
+             */
+            function checkEndConditions() {
+                // Check win condition
+                if (levelGoal.type === 'score' && score >= levelGoal.target) {
+                    showEndScreen(true);
+                    return;
+                }
+
+                // Check loss condition
+                if (movesLeft <= 0) {
+                    showEndScreen(false);
+                    return;
+                }
+            }
+
+            /**
+             * Displays the end screen for win/loss.
+             * @param {boolean} isWin - True if the player won, false otherwise.
+             * @param {string} [customTitle] - Optional custom title for the end screen.
+             * @param {string} [customMessage] - Optional custom message.
+             */
+            function showEndScreen(isWin, customTitle, customMessage) {
+                if(isWin) {
+                    playSound('win');
+                    endScreenTitle.textContent = customTitle || "Уровень пройден!";
+                    endScreenMessage.textContent = customMessage || "Отличная работа!";
+                    endScreenButton.textContent = "Следующий уровень";
+                    endScreenButton.onclick = () => {
+                        currentLevel++;
+                        saveProgress();
+                        startLevel();
+                    };
+                    // Calculate stars based on performance (e.g., remaining moves)
+                    let stars = movesLeft > 10 ? '⭐⭐⭐' : movesLeft > 5 ? '⭐⭐' : '⭐';
+                    endScreenStars.textContent = stars;
+                } else {
+                    playSound('lose');
+                    endScreenTitle.textContent = customTitle || "Поражение";
+                    endScreenMessage.textContent = customMessage || "Ходы закончились. Попробуйте снова!";
+                    endScreenButton.textContent = "Попробовать снова";
+                    endScreenButton.onclick = startLevel;
+                    endScreenStars.textContent = '';
+                }
+                endScreenScore.textContent = score;
+                showScreen('end-screen');
+            }
+            
+            /**
+             * Updates the UI display for score, moves, and goals.
+             */
+            function updateUI() {
+                movesDisplay.textContent = movesLeft;
+                if(levelGoal.type === 'score') {
+                    goalDisplay.textContent = `${score}/${levelGoal.target}`;
+                }
+            }
+
+            // --- SECTION: INPUT HANDLING ---
+            
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('touchstart', (e) => handleMouseDown(e.touches[0]));
+
+            function handleMouseDown(e) {
+                if (isAnimating) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                const gridX = Math.floor(mouseX / cellSize);
+                const gridY = Math.floor(mouseY / cellSize);
+
+                if (gridX < 0 || gridX >= GRID_SIZE || gridY < 0 || gridY >= GRID_SIZE) {
+                    return;
+                }
+
+                if (!selectedCrystal) {
+                    selectedCrystal = { x: gridX, y: gridY };
+                } else {
+                    // Check if the new selection is adjacent to the old one
+                    const dx = Math.abs(gridX - selectedCrystal.x);
+                    const dy = Math.abs(gridY - selectedCrystal.y);
+                    if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
+                        swapCrystals(selectedCrystal, { x: gridX, y: gridY });
+                    }
+                    selectedCrystal = null; // Deselect after attempt
+                }
+            }
+
+            /**
+             * Swaps two crystals and checks if the move is valid.
+             * @param {object} c1 - The first crystal's coordinates {x, y}.
+             * @param {object} c2 - The second crystal's coordinates {x, y}.
+             */
+            async function swapCrystals(c1, c2) {
+                if (isSwapping) return;
+                isSwapping = true;
+                
+                playSound('swap');
+                if(tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+
+                let temp = board[c1.y][c1.x];
+                board[c1.y][c1.x] = board[c2.y][c2.x];
+                board[c2.y][c2.x] = temp;
+
+                // Check for matches after swap
+                let matches = findMatches();
+                if (matches.length > 0) {
+                    movesLeft--;
+                    updateUI();
+                    await processGameLogic(); // This will handle the matches
+                } else {
+                    // Invalid move, swap back
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    let temp = board[c1.y][c1.x];
+                    board[c1.y][c1.x] = board[c2.y][c2.x];
+                    board[c2.y][c2.x] = temp;
+                }
+                
+                isSwapping = false;
+            }
+
+            // --- SECTION: AUDIO & PERSISTENCE ---
+
+            // Placeholder for audio objects. You would host these files.
+            const audio = {
+                // 'swap': new Audio('path/to/swap.mp3'),
+                // 'match': new Audio('path/to/match.mp3'),
+                // 'win': new Audio('path/to/win.mp3'),
+                // 'lose': new Audio('path/to/lose.mp3'),
+            };
+
+            function playSound(sound) {
+                if (!isMuted && audio[sound]) {
+                    audio[sound].currentTime = 0;
+                    audio[sound].play();
+                }
+            }
+            
+            /**
+             * Saves the current level to localStorage.
+             */
+            function saveProgress() {
+                try {
+                    localStorage.setItem('crystalQuestLevel', currentLevel);
+                } catch (e) {
+                    console.error("Could not save progress to localStorage.", e);
+                }
+            }
+
+            /**
+             * Loads the current level from localStorage.
+             */
+            function loadProgress() {
+                try {
+                    const savedLevel = localStorage.getItem('crystalQuestLevel');
+                    if (savedLevel) {
+                        currentLevel = parseInt(savedLevel, 10);
+                    }
+                } catch (e) {
+                    console.error("Could not load progress from localStorage.", e);
+                    currentLevel = 1;
+                }
+            }
+
+
+            // --- SECTION: EVENT LISTENERS ---
+            
+            playButton.addEventListener('click', () => {
+                startLevel();
+            });
+
+            muteButton.addEventListener('click', () => {
+                isMuted = !isMuted;
+                muteButton.textContent = isMuted ? '🔇' : '🔊';
+            });
+
+            // Start the application
+            initGame();
+        });
+    </script>
+</body>
+</html>
